@@ -1,5 +1,10 @@
 #!/bin/bash
 set -e
-# Start systemd service (systemd file must exist)
+
+echo ">>> Starting FastAPI service..."
+
 sudo systemctl daemon-reload
-sudo systemctl restart fastapi || sudo systemctl start fastapi
+sudo systemctl enable fastapi
+sudo systemctl restart fastapi
+
+echo ">>> FastAPI started."
