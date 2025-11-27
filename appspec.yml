@@ -1,18 +1,22 @@
 version: 0.0
 os: linux
+
 files:
-  - source: /
+  - source: backend/
     destination: /opt/chinook/backend
+
 hooks:
+  BeforeInstall:
+    - location: backend/scripts/stop_server.sh
+      timeout: 60
+      runas: ubuntu
+
   AfterInstall:
-    - location: scripts/install_dependencies.sh
+    - location: backend/scripts/install_dependencies.sh
       timeout: 300
       runas: ubuntu
-  ApplicationStop:
-    - location: scripts/stop_server.sh
-      timeout: 300
-      runas: ubuntu
+
   ApplicationStart:
-    - location: scripts/start_server.sh
+    - location: backend/scripts/start_server.sh
       timeout: 300
       runas: ubuntu
