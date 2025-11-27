@@ -1,56 +1,93 @@
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
-from app.database import SessionLocal
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from sqlalchemy import func
 from datetime import datetime
-import json
+from decimal import Decimal, ROUND_HALF_UP
 
-router = APIRouter(prefix="/purchase", tags=["purchase"])
+from .. import schemas
+from .. import models
+from ..database import get_db
 
-class PurchaseRequest(BaseModel):
-    customer_id: int
-    track_ids: list[int]
-    billing_address: str | None = None
+router = APIRouter()
 
-def get_db():
-    db = SessionLocal()
+@router.post("/buy", response_model=schemas.PurchaseResponse)
+def create_purchase(req: schemas.PurchaseRequest, db: Session = Depends(get_db)):
+    """
+    Crea una factura (invoice) y sus invoice lines atomically.
+    - req.customer_id debe existir.
+    - lines es lista de {track_id, quantity}
+    """
+    # Validar cliente
+    customer = db.query(models.Customer).filter(models.Customer.CustomerId == req.customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
+    if not req.lines or len(req.lines) == 0:
+        raise HTTPException(status_code=400, detail="No se proporcionaron líneas de compra")
+
+    # Cálculo del total y creación de invoice dentro de una transacción
     try:
-        yield db
-    finally:
-        db.close()
+        # start transaction block
+        total = Decimal("0.00")
+        invoice = models.Invoice(
+            CustomerId=req.customer_id,
+            InvoiceDate=datetime.utcnow(),
+            BillingAddress=req.billing_address,
+            BillingCity=req.billing_city,
+            BillingCountry=req.billing_country,
+            Total=Decimal("0.00"),  # set later
+        )
+        db.add(invoice)
+        db.flush()  # asegura invoice.InvoiceId disponible
 
-@router.post("/")
-def make_purchase(req: PurchaseRequest, db=Depends(get_db)):
-    # Simple transactional pattern: insert Invoice + InvoiceLine, then outbox event
-    conn = db.bind.raw_connection()
-    try:
-        cur = conn.cursor()
-        # Insert Invoice
-        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        cur.execute("INSERT INTO Invoice (CustomerId, InvoiceDate, BillingAddress, Total) VALUES (%s,%s,%s,%s)",
-                    (req.customer_id, now, req.billing_address, 0.0))
-        invoice_id = cur.lastrowid
-        total = 0.0
-        for tid in req.track_ids:
-            cur.execute("SELECT UnitPrice FROM Track WHERE TrackId=%s", (tid,))
-            row = cur.fetchone()
-            if not row:
-                conn.rollback()
-                raise HTTPException(status_code=404, detail=f"Track {tid} not found")
-            price = float(row[0])
-            total += price
-            cur.execute("INSERT INTO InvoiceLine (InvoiceId, TrackId, UnitPrice, Quantity) VALUES (%s,%s,%s,%s)",
-                        (invoice_id, tid, price, 1))
-        cur.execute("UPDATE Invoice SET Total=%s WHERE InvoiceId=%s", (total, invoice_id))
-        # Write outbox event (atomic inside same txn)
-        payload = json.dumps({"invoice_id": invoice_id, "customer_id": req.customer_id,
-                              "track_ids": req.track_ids, "total": total, "invoice_date": now})
-        cur.execute("INSERT INTO outbox_events (event_type, payload, created_at) VALUES (%s,%s,%s)",
-                    ("purchase", payload, now))
-        conn.commit()
-        return {"invoice_id": invoice_id, "total": total}
+        for line in req.lines:
+            track = db.query(models.Track).filter(models.Track.TrackId == line.track_id).with_for_update().first()
+            if not track:
+                raise HTTPException(status_code=404, detail=f"Track {line.track_id} no encontrado")
+
+            # Unit price from track.UnitPrice (Decimal-like)
+            unit_price = Decimal(str(track.UnitPrice))
+            line_total = (unit_price * Decimal(line.quantity)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            total += line_total
+
+            invoice_line = models.InvoiceLine(
+                InvoiceId=invoice.InvoiceId,
+                TrackId=track.TrackId,
+                UnitPrice=unit_price,
+                Quantity=line.quantity,
+            )
+            db.add(invoice_line)
+
+        # persist totals
+        invoice.Total = total
+        db.add(invoice)
+        db.commit()
+        db.refresh(invoice)
+
+        return schemas.PurchaseResponse(
+            invoice_id=invoice.InvoiceId,
+            total=invoice.Total,
+            created_at=invoice.InvoiceDate,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        cur.close()
-        conn.close()
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Error creando la compra") from e
+
+@router.get("/purchase/{invoice_id}")
+def get_invoice(invoice_id: int, db: Session = Depends(get_db)):
+    inv = db.query(models.Invoice).filter(models.Invoice.InvoiceId == invoice_id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice no encontrado")
+    # serializar manualmente para no necesitar schema extenso
+    return {
+        "InvoiceId": inv.InvoiceId,
+        "CustomerId": inv.CustomerId,
+        "InvoiceDate": inv.InvoiceDate,
+        "Total": float(inv.Total),
+        "lines": [
+            {"TrackId": l.TrackId, "UnitPrice": float(l.UnitPrice), "Quantity": l.Quantity} for l in inv.lines
+        ],
+    }
