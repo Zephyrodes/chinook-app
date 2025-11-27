@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -13,3 +14,15 @@ LOG_LEVEL=${UVM_LOG_LEVEL:-info}
 source .venv/bin/activate
 
 exec uvicorn "$APP_MODULE" --host "$HOST" --port "$PORT" --workers "$WORKERS" --log-level "$LOG_LEVEL"
+=======
+#!/bin/bash
+set -e
+
+echo ">>> Starting FastAPI service..."
+
+sudo systemctl daemon-reload
+sudo systemctl enable fastapi
+sudo systemctl restart fastapi
+
+echo ">>> FastAPI started."
+>>>>>>> ee8c1818a32ab4cfd07ded81a17c3b4ee60310e5
