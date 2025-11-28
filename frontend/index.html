@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Chinook Music Store</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>🎵 Chinook Music Store</h1>
+    </header>
+
+    <section class="customer-info">
+        <h2>Datos del Cliente</h2>
+        <input type="number" id="customerId" placeholder="Customer ID">
+        <input type="text" id="billingAddress" placeholder="Dirección (opcional)">
+        <input type="text" id="billingCity" placeholder="Ciudad (opcional)">
+        <input type="text" id="billingCountry" placeholder="País (opcional)">
+    </section>
+
+    <section class="catalog">
+        <h2>Catálogo de Canciones</h2>
+        <div id="tracksContainer" class="tracks-container"></div>
+    </section>
+
+    <section class="cart-section">
+        <h2>Carrito</h2>
+        <ul id="cart" class="cart-list"></ul>
+        <button id="buyBtn">Comprar</button>
+    </section>
+
+    <section class="result-section">
+        <h2>Resultado de la Compra</h2>
+        <pre id="result"></pre>
+    </section>
+
+    <script src="app.js"></script>
+</body>
+</html>

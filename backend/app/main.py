@@ -1,9 +1,8 @@
-# app/main.py
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import engine, Base  # tu cambio importante
-from .routers import routers as public_routers   # <- IMPORT RELATIVO
+from app.database import engine, Base
+from .routers import routers as public_routers
 from .routers import purchase as purchase_router
 
 CREATE_TABLES_ON_START = os.getenv("CREATE_TABLES_ON_START", "false").lower() == "true"
@@ -23,7 +22,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Router de catálogo
 app.include_router(public_routers.router, prefix="/api", tags=["catalog"])
+# Router de compras simplificado
 app.include_router(purchase_router.router, prefix="/api", tags=["purchase"])
 
 @app.on_event("startup")
